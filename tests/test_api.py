@@ -67,6 +67,7 @@ async def test_api(monkeypatch):
                                              'Content-Type': 'image/jpeg',
                                              'X-Smug-AlbumUri': '/api/v2/album/album0',
                                              'X-Smug-FileName': 'image.jpg',
+                                             'X-Smug-Keywords': 'smog-upload',
                                              'X-Smug-ResponseType': 'JSON',
                                              'X-Smug-Version': 'v2'},
                                     data=b'bytes')
