@@ -1,3 +1,4 @@
+import itertools
 import os
 import sys
 
@@ -7,11 +8,29 @@ from smog.api import SmugMugApi
 from smog.index import AlbumIndex, DirectoryIndex
 
 
+# TODO refactor pagination logic
+async def list_nodes(api, next_page):
+    while next_page:
+        nodes_response = await api.list_nodes(next_page)
+        for node in nodes_response['Response']['Node']:
+            yield node
+        next_page = nodes_response['Response']['Pages'].get('NextPage')
+
+
 async def run_operation(limit, progress, msg, fn, *args):
     async with limit:
         print(msg, progress)
         progress[0] += 1
         await fn(*args)
+
+
+async def create_album(api, folder_node_endpoint, dir_index, index_root, to_sync):
+    album_node_response = await api.create_album_node(folder_node_endpoint, dir_index.dir_path.name)
+    album_endpoint = album_node_response['Response']['Node']['Uris']['Album']
+    albumkey = album_endpoint.split('/')[-1]
+    await dir_index.set_albumkey(albumkey)
+    album_index = AlbumIndex(index_root / albumkey, api, album_endpoint)
+    to_sync.append((dir_index, album_index))
 
 
 async def main():
@@ -24,6 +43,7 @@ async def main():
 
     api = SmugMugApi(oauth_consumer_key, oauth_consumer_secret,
                      oauth_token, oauth_token_secret)
+    limit = trio.CapacityLimiter(8)
 
     dir_by_name = {}
     dir_by_albumkey = {}
@@ -41,8 +61,8 @@ async def main():
     index_root = trio.Path(index_root)
     authuser_response = await api.get_authuser()
     folder_node_endpoint = authuser_response['Response']['User']['Uris']['Node']
-    nodes_response = await api.list_nodes(folder_node_endpoint)
-    for node in nodes_response['Response']['Node']:
+
+    async for node in list_nodes(api, folder_node_endpoint):
         if node['Type'] != 'Album':
             continue
         albumkey = node['Uris']['Album'].split('/')[-1]
@@ -58,25 +78,29 @@ async def main():
             # TODO set an album keyword?
             print('Unlinked album', albumkey)
             continue
-    to_sync.extend((d, None) for d in dir_by_albumkey.values())
-    to_sync.extend((d, None) for d in dir_by_name.values())
 
+    progress = [0, len(dir_by_albumkey) + len(dir_by_name)]
+    async with trio.open_nursery() as nursery:
+        for dir_index in itertools.chain(dir_by_albumkey.values(), dir_by_name.values()):
+            nursery.start_soon(run_operation, limit, progress,
+                               f'Creating album {dir_index.dir_path.name}',
+                               create_album, api, folder_node_endpoint, dir_index, index_root, to_sync)
+
+    progress = [0, 2 * len(to_sync)]
     async with trio.open_nursery() as nursery:
         for dir_index, album_index in to_sync:
-            nursery.start_soon(dir_index.reindex)
-            if album_index is not None:
-                nursery.start_soon(album_index.reindex)
+            nursery.start_soon(run_operation, limit, progress,
+                               f'Reindexing {dir_index.dir_path}',
+                               dir_index.reindex)
+            nursery.start_soon(run_operation, limit, progress,
+                               f'Reindexing {album_index.album_endpoint}',
+                               album_index.reindex)
 
     operations = []
     for dir_index, album_index in to_sync:
         # list() does not seem to work on async generators
         dir_by_md5 = [x async for x in dir_index.iter_by_md5()]
-        if album_index is None:
-            album_by_md5 = []
-            album_endpoint = None
-        else:
-            album_by_md5 = [x async for x in album_index.iter_by_md5()]
-            album_endpoint = album_index.album_endpoint
+        album_by_md5 = [x async for x in album_index.iter_by_md5()]
         for x in (dir_by_md5, album_by_md5):
             x.append(('x', None)) # sentinel
         dir_idx = album_idx = 0
@@ -87,14 +111,9 @@ async def main():
                 dir_idx += 1
                 album_idx += 1
             elif dir_md5 < album_md5:
-                if album_endpoint is None:
-                    album_node_response = await api.create_album_node(folder_node_endpoint, dir_index.dir_path.name)
-                    album_endpoint = album_node_response['Response']['Node']['Uris']['Album']
-                    albumkey = album_endpoint.split('/')[-1]
-                    await dir_index.set_albumkey(albumkey)
                 image_path = dir_index.dir_path / image_filename
                 operations.append((f'Uploading {image_path}',
-                                   api.upload_image, album_endpoint, image_path))
+                                   api.upload_image, album_index.album_endpoint, image_path))
                 dir_idx += 1
             else:
                 # TODO keywords handled sloppily. should add not overwrite. never unset
@@ -107,7 +126,6 @@ async def main():
     # TODO this is such a janky and probably incorrectly synchronized way to share data
     progress = [0, len(operations)]
     async with trio.open_nursery() as nursery:
-        limit = trio.CapacityLimiter(8)
         for msg, fn, *args in operations:
             nursery.start_soon(run_operation, limit, progress, msg, fn, *args)
 
