@@ -16,7 +16,6 @@ class SmugMugApi(object):
             oauth_consumer_key, client_secret=oauth_consumer_secret,
             resource_owner_key=oauth_token, resource_owner_secret=oauth_token_secret,
             **oauth_kwargs)
-        self.request_semaphore = trio.Semaphore(8)
 
     async def _request_json(self, method, uri, headers=None, body=None):
         if uri.startswith('/'):
@@ -34,10 +33,10 @@ class SmugMugApi(object):
             # unsigned in OAuth anyway.
             uri, headers, _ = self.client.sign(uri, http_method=method, headers=headers)
 
-        async with self.request_semaphore:
-            response = await asks.request(method, uri, headers=headers, data=body)
-        if 200 <= response.status_code < 300:
-            pass # TODO error handling
+        response = await asks.request(method, uri, headers=headers, data=body)
+        # TODO could do advanced rate limiting with response headers
+        if not (200 <= response.status_code < 300):
+            raise Exception('HTTP error', response.status_code, response.content)
         return response.json()
 
     async def get_authuser(self):
