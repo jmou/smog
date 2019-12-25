@@ -1,3 +1,4 @@
 asks
+async_generator
 oauthlib
 trio

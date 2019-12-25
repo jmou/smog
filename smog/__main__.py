@@ -2,7 +2,7 @@ import itertools
 import logging
 import os
 import sys
-from contextlib import asynccontextmanager
+from async_generator import asynccontextmanager
 
 import trio
 
