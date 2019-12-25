@@ -50,9 +50,9 @@ async def test_api(monkeypatch):
     assert await api.create_album_node('/api/v2/node/node0', 'name') == {}
     request.assert_called_once_with('POST', 'https://api.smugmug.com/api/v2/node/node0!children?_verbosity=1',
                                     headers={'Accept': 'application/json', 'Accept-Encoding': 'gzip',
-                                             'Authorization': AUTH_PREFIX + '"kULEPaErXQYHMY4ZRa%2FLHZ%2FW6KA%3D"',
+                                             'Authorization': AUTH_PREFIX + '"Rp1IreISDFYqb8aPYz5umbe4Y9M%3D"',
                                              'Content-Type': 'application/x-www-form-urlencoded'},
-                                    data={'Type': 'Album', 'Name': 'name', 'Privacy': 'Private'})
+                                    data={'Type': 'Album', 'Name': 'name', 'Privacy': 'Private', 'Keywords': 'smog.upload'})
 
     request.reset()
     async def read_bytes(self):
@@ -67,7 +67,7 @@ async def test_api(monkeypatch):
                                              'Content-Type': 'image/jpeg',
                                              'X-Smug-AlbumUri': '/api/v2/album/album0',
                                              'X-Smug-FileName': 'image.jpg',
-                                             'X-Smug-Keywords': 'smog-upload',
+                                             'X-Smug-Keywords': 'smog.upload',
                                              'X-Smug-ResponseType': 'JSON',
                                              'X-Smug-Version': 'v2'},
                                     data=b'bytes')

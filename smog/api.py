@@ -1,6 +1,7 @@
 import hashlib
 import mimetypes
 import os
+from json import dumps as json_dumps
 
 import asks
 import oauthlib.oauth1
@@ -17,7 +18,7 @@ class SmugMugApi(object):
             resource_owner_key=oauth_token, resource_owner_secret=oauth_token_secret,
             **oauth_kwargs)
 
-    async def _request_json(self, method, uri, headers=None, body=None):
+    async def _request_json(self, method, uri, headers=None, body=None, json=None):
         if uri.startswith('/'):
             symbol = '&' if '?' in uri else '?'
             uri = self.BASE_URI + uri + symbol + '_verbosity=1'
@@ -25,13 +26,16 @@ class SmugMugApi(object):
             headers = {}
         headers = {'Accept': 'application/json', 'Accept-Encoding': 'gzip', **headers}
 
-        if headers.get('Content-Type') == 'application/x-www-form-urlencoded':
-            uri, headers, body = self.client.sign(uri, http_method=method,
-                                                  headers=headers, body=body)
-        else:
+        if type(body) == bytes:
             # oauthlib barfs on non-UTF8 file upload bodies. These bodies are
             # unsigned in OAuth anyway.
             uri, headers, _ = self.client.sign(uri, http_method=method, headers=headers)
+        else:
+            assert body is None or json is None
+            if json is not None:
+                body = json_dumps(json)
+            uri, headers, body = self.client.sign(uri, http_method=method,
+                                                  headers=headers, body=body)
 
         response = await asks.request(method, uri, headers=headers, data=body)
         # TODO could do advanced rate limiting with response headers
@@ -48,15 +52,19 @@ class SmugMugApi(object):
     async def create_album_node(self, folder_node_endpoint, album_name):
         return await self._request_json('POST', folder_node_endpoint + '!children',
                                         headers={'Content-Type': 'application/x-www-form-urlencoded'},
-                                        body={'Type': 'Album', 'Name': album_name, 'Privacy': 'Private'})
+                                        body={'Type': 'Album',
+                                              'Name': album_name,
+                                              'Privacy': 'Private',
+                                              'Keywords': 'smog.upload'})
 
     async def list_images(self, album_endpoint):
         return await self._request_json('GET', album_endpoint + '!images')
 
-    async def set_image_keywords(self, image_endpoint, keywords):
-        return await self._request_json('PATCH', image_endpoint,
-                                        headers={'Content-Type': 'application/x-www-form-urlencoded'},
-                                        body={'Keywords': keywords})
+    async def set_keywords(self, endpoint, keywords):
+        """Set keywords for album or image endpoint"""
+        return await self._request_json('PATCH', endpoint,
+                                        headers={'Content-Type': 'application/json'},
+                                        json={'Keywords': keywords})
 
     async def upload_image(self, album_endpoint, image_path):
         image_path = trio.Path(image_path)
@@ -68,7 +76,7 @@ class SmugMugApi(object):
             'Content-MD5': hashlib.md5(body).hexdigest(),
             'X-Smug-AlbumUri': album_endpoint,
             'X-Smug-FileName': image_path.name,
-            'X-Smug-Keywords': 'smog-upload',
+            'X-Smug-Keywords': 'smog.upload',
             'X-Smug-ResponseType': 'JSON',
             'X-Smug-Version': 'v2',
         }

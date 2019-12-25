@@ -124,9 +124,8 @@ async def main():
             dir_index = dir_by_name.pop(node['Name'])
             to_sync.append((dir_index, album_index))
         else:
-            # TODO set an album keyword?
-            print('Unlinked album', albumkey)
-            continue
+            print(f'Marking for removal /api/v2/album/{albumkey}')
+            await api.set_keywords('/api/v2/album/' + albumkey, 'smog.upload; smog.removed')
 
     progress = [0, len(dir_by_albumkey) + len(dir_by_name)]
     async with trio.open_nursery() as nursery:
@@ -166,9 +165,9 @@ async def main():
                 dir_idx += 1
             else:
                 # TODO keywords handled sloppily. should add not overwrite. never unset
+                # FYI '-' is silently dropped from keywords
                 operations.append((f'Marking for removal {image_endpoint}',
-                                   api.set_image_keywords,
-                                   image_endpoint, 'smog-upload; smog-removed'))
+                                   api.set_keywords, image_endpoint, 'smog.upload; smog.removed'))
                 album_idx += 1
         assert dir_idx == len(dir_by_md5) and album_idx == len(album_by_md5)
 
