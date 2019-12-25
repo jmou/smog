@@ -1,6 +1,8 @@
 import itertools
+import logging
 import os
 import sys
+from contextlib import asynccontextmanager
 
 import trio
 
@@ -8,11 +10,48 @@ from smog.api import SmugMugApi
 from smog.index import AlbumIndex, DirectoryIndex
 
 
+# https://stackoverflow.com/a/48355334
+# This logs and ignores exceptions, which is not really what we want. We want
+# the exceptions to propagate up as a MultiError, but only after all
+# outstanding children have completed without being canceled. I don't think
+# that is easy to express with this approach. We only use this nursery on the
+# last set of operations so we don't silently proceed after an exception.
+class ExceptionLoggingNursery:
+    def __init__(self, nursery):
+        self.nursery = nursery
+
+    @property
+    def cancel_scope(self):
+        return self.nursery.cancel_scope
+
+    async def _run_and_log_errors(self, async_fn, *args):
+        # This is more cumbersome than it should be
+        # See https://github.com/python-trio/trio/issues/408
+        def handler(exc):
+            if not isinstance(exc, Exception):
+                return exc
+            logging.exception("Unhandled exception!", exc_info=exc)
+        with trio.MultiError.catch(handler):
+            return await async_fn(*args)
+
+    def start_soon(self, async_fn, *args, **kwargs):
+        self.nursery.start_soon(self._run_and_log_errors, async_fn, *args, **kwargs)
+
+    async def start(self, async_fn, *args, **kwargs):
+        return await self.nursery.start(self._run_and_log_errors, async_fn, *args, **kwargs)
+
+
+@asynccontextmanager
+async def open_exception_logging_nursery():
+    async with trio.open_nursery() as nursery:
+        yield ExceptionLoggingNursery(nursery)
+
+
 # TODO refactor pagination logic
 async def list_nodes(api, next_page):
     while next_page:
         nodes_response = await api.list_nodes(next_page)
-        for node in nodes_response['Response']['Node']:
+        for node in nodes_response['Response'].get('Node', []):
             yield node
         next_page = nodes_response['Response']['Pages'].get('NextPage')
 
@@ -34,7 +73,7 @@ async def create_album(api, folder_node_endpoint, dir_index, index_root, to_sync
 
 
 async def main():
-    _, index_root, *dirs = sys.argv
+    _, root_folder, index_root, *dirs = sys.argv
 
     oauth_consumer_key = os.environ['SMUGMUG_API_KEY']
     oauth_consumer_secret = os.environ['SMUGMUG_API_SECRET']
@@ -61,6 +100,16 @@ async def main():
     index_root = trio.Path(index_root)
     authuser_response = await api.get_authuser()
     folder_node_endpoint = authuser_response['Response']['User']['Uris']['Node']
+    while root_folder:
+        if not root_folder.endswith('/'):
+            root_folder += '/'
+        next_part, root_folder = root_folder.split('/', 1)
+        async for node in list_nodes(api, folder_node_endpoint):
+            if node['Name'] == next_part:
+                folder_node_endpoint = node['Uri']
+                break
+        else:
+            raise Exception('No folder', next_part)
 
     async for node in list_nodes(api, folder_node_endpoint):
         if node['Type'] != 'Album':
@@ -125,7 +174,7 @@ async def main():
 
     # TODO this is such a janky and probably incorrectly synchronized way to share data
     progress = [0, len(operations)]
-    async with trio.open_nursery() as nursery:
+    async with open_exception_logging_nursery() as nursery:
         for msg, fn, *args in operations:
             nursery.start_soon(run_operation, limit, progress, msg, fn, *args)
 
