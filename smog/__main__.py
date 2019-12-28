@@ -63,8 +63,8 @@ async def run_operation(limit, progress, msg, fn, *args):
         await fn(*args)
 
 
-async def create_album(api, folder_node_endpoint, dir_index, index_root, to_sync):
-    album_node_response = await api.create_album_node(folder_node_endpoint, dir_index.dir_path.name)
+async def create_album(api, folder_node_endpoint, album_name, dir_index, index_root, to_sync):
+    album_node_response = await api.create_album_node(folder_node_endpoint, album_name)
     album_endpoint = album_node_response['Response']['Node']['Uris']['Album']
     albumkey = album_endpoint.split('/')[-1]
     await dir_index.set_albumkey(albumkey)
@@ -130,9 +130,12 @@ async def main():
     progress = [0, len(dir_by_albumkey) + len(dir_by_name)]
     async with trio.open_nursery() as nursery:
         for dir_index in itertools.chain(dir_by_albumkey.values(), dir_by_name.values()):
+            album_name = dir_index.dir_path.name
+            if album_name == 'darktable_exported':
+                album_name = f'{dir_index.dir_path.parent.name}/{album_name}'
             nursery.start_soon(run_operation, limit, progress,
-                               f'Creating album {dir_index.dir_path.name}',
-                               create_album, api, folder_node_endpoint, dir_index, index_root, to_sync)
+                               f'Creating album {album_name}',
+                               create_album, api, folder_node_endpoint, album_name, dir_index, index_root, to_sync)
 
     progress = [0, 2 * len(to_sync)]
     async with trio.open_nursery() as nursery:

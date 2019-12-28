@@ -54,7 +54,8 @@ class SmugMugApi(object):
                                         headers={'Content-Type': 'application/x-www-form-urlencoded'},
                                         body={'Type': 'Album',
                                               'Name': album_name,
-                                              'Privacy': 'Private',
+                                              'Privacy': 'Unlisted',
+                                              'Password': os.environ['ALBUM_PASSWORD'],
                                               'Keywords': 'smog.upload'})
 
     async def list_images(self, album_endpoint):

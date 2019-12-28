@@ -1,4 +1,5 @@
 # Reset all album and image keywords to smog.upload.
+# Set all albums to unlisted with a password.
 
 import itertools
 import logging
@@ -55,8 +56,14 @@ async def main():
             continue
         albumkey = node['Uris']['Album'].split('/')[-1]
         album_endpoint = '/api/v2/album/' + albumkey
-        print(f'Resetting keywords {album_endpoint}')
-        await api.set_keywords(album_endpoint, 'smog.upload')
+        print(f'Resetting album {album_endpoint}')
+        await api._request_json('PATCH', album_endpoint,
+                                headers={'Content-Type': 'application/json'},
+                                json={'Privacy': 'Unlisted',
+                                      'Password': os.environ['ALBUM_PASSWORD'],
+                                      'Keywords': 'smog.upload'})
+        # uncomment to skip retagging images
+        # continue
         next_page = album_endpoint
         while next_page:
             album_response = await api.list_images(next_page)
