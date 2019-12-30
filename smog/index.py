@@ -36,8 +36,7 @@ class DirectoryIndex(object):
         await self.index_path.parent.mkdir(exist_ok=True)
         async with await self.index_path.open('w') as index_file:
             for entry in entries:
-                # TODO .mp4 and .mov?
-                if not await entry.is_file() or entry.suffix.lower() not in ('.jpg', '.png'):
+                if not await entry.is_file() or entry.suffix.lower() not in ('.jpg', '.png', '.mp4', '.mov'):
                     continue
                 stat = await entry.stat()
                 size = stat.st_size

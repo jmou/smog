@@ -1,6 +1,7 @@
 import itertools
 import logging
 import os
+import re
 import sys
 from async_generator import asynccontextmanager
 
@@ -87,6 +88,9 @@ async def main():
     dir_by_name = {}
     dir_by_albumkey = {}
     for dir_path in dirs:
+        if re.fullmatch(r'\d{3}\w{5}', dir_path):
+            print(f'Ignoring directory that looks like a DCIM directory {dir_path}')
+            continue
         dir_index = DirectoryIndex(dir_path)
         albumkey = await dir_index.get_albumkey()
         if albumkey is None:
