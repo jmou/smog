@@ -88,13 +88,17 @@ async def main():
     dir_by_name = {}
     dir_by_albumkey = {}
     for dir_path in dirs:
-        if re.fullmatch(r'\d{3}\w{5}', dir_path):
+        dir_index = DirectoryIndex(dir_path)
+        dir_name = dir_index.dir_path.name
+        if re.fullmatch(r'\d{3}\w{5}', dir_name):
             print(f'Ignoring directory that looks like a DCIM directory {dir_path}')
             continue
-        dir_index = DirectoryIndex(dir_path)
+        elif re.fullmatch(r'New folder.*', dir_name) or '*' in dir_path:
+            print(f'Ignoring {dir_path}')
+            continue
         albumkey = await dir_index.get_albumkey()
         if albumkey is None:
-            dir_by_name[dir_index.dir_path.name] = dir_index
+            dir_by_name[dir_name] = dir_index
         elif albumkey in dir_by_albumkey:
             raise Exception('duplicate album key', albumkey)
         else:
